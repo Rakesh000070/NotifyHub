@@ -3,6 +3,8 @@ console.log("🚀 server.js is running");
 const authRoutes = require("./routes/authRoutes");
 console.log("✅ authRoutes imported");
 
+const notificationRoutes = require("./routes/notificationRoutes");
+
 // Import the Express framework.
 // Express helps us build the backend server and create APIs.
 const express = require("express");
@@ -80,7 +82,7 @@ app.get("/", (req, res) => {
   All authentication-related routes are managed in authRoutes.js.
 */
 app.use("/api/auth", authRoutes);
-
+app.use("/api/notifications", notificationRoutes);
 // Start the Express server and listen for incoming requests.
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);

@@ -1,29 +1,56 @@
+
 console.log("✅ authRoutes.js loaded");
 
-// Import the Express framework.
-// Express helps us create routes and build the backend server.
+// Import Express
 const express = require("express");
 
-// Create a new Router object.
-// A Router lets us organize related API routes into separate files.
+// Create Express Router
 const router = express.Router();
 
+// ======================================================
+// TEST ROUTE
+// ======================================================
 
 router.get("/test", (req, res) => {
   res.send("Auth Route Working");
 });
 
-// Import the registerUser controller.
-// This function contains the logic for registering a new user.
-const { registerUser } = require("../controllers/authController");
 
-// Create a POST API endpoint for user registration.
-//
-// When the client sends:
+// ======================================================
+// IMPORT AUTH CONTROLLERS
+// ======================================================
+
+const {
+  registerUser,
+  loginUser,
+} = require("../controllers/authController");
+
+
+// ======================================================
+// REGISTER ROUTE
+// ======================================================
+
 // POST /api/auth/register
-//
-// Express will execute the registerUser controller.
 router.post("/register", registerUser);
 
-// Export this router so it can be imported into server.js.
+
+// ======================================================
+// LOGIN ROUTE
+// ======================================================
+
+// POST /api/auth/login
+router.post("/login", loginUser);
+
+const protect = require("../middleware/authMiddleware");
+
+// PROTECTED PROFILE ROUTE
+router.get("/profile", protect, (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: "Profile accessed successfully",
+        user: req.user,
+    });
+});
+
+// Export router
 module.exports = router;
