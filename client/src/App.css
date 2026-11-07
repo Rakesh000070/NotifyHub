@@ -182,3 +182,15 @@
     border-right-color: var(--border);
   }
 }
+
+.unread-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #5b21b6;
+  font-size: 0.75rem;
+  font-weight: 600;
+  vertical-align: middle;
+}

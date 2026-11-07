@@ -1,49 +1,148 @@
-// Import Notification model
+
+/*
+========================================================
+NOTIFICATION CONTROLLER
+========================================================
+Handles:
+1. Creating notifications
+2. Fetching the logged-in user's notifications
+3. Marking notifications as read
+4. Deleting notifications
+5. Counting unread notifications
+*/
+
+const mongoose = require("mongoose");
 const Notification = require("../models/Notification");
+
 
 // ======================================================
 // CREATE NOTIFICATION
 // ======================================================
+
 const createNotification = async (req, res) => {
-    try {
-        const { title, message, type } = req.body;
+  try {
+    const { title, message, type, requestId } = req.body || {};
+    const userId = req.user?.id;
 
-        // Validate required fields
-        if (
-            typeof title !== "string" ||
-            !title.trim() ||
-            typeof message !== "string" ||
-            !message.trim()
-        ) {
-            return res.status(400).json({
-                success: false,
-                message: "Title and message are required",
-            });
-        }
-
-        const notification = await Notification.create({
-            userId: req.user.id,
-            title: title.trim(),
-            message: message.trim(),
-            type,
-        });
-
-        return res.status(201).json({
-            success: true,
-            message: "Notification created successfully",
-            notification,
-        });
-
-    } catch (error) {
-        console.error("Create notification error:", error);
-
-        return res.status(500).json({
-            success: false,
-            message: "Internal server error",
-        });
+    // Ensure the user is authenticated.
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
     }
-};
 
+    // Validate the notification title and message.
+    if (
+      typeof title !== "string" ||
+      !title.trim() ||
+      typeof message !== "string" ||
+      !message.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Title and message are required.",
+      });
+    }
+
+    // Validate requestId when provided.
+    if (
+      requestId !== undefined &&
+      (typeof requestId !== "string" || !requestId.trim())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid requestId.",
+      });
+    }
+
+    // Validate the notification type when provided.
+    if (
+      type !== undefined &&
+      (typeof type !== "string" || !type.trim())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid notification type.",
+      });
+    }
+
+    const normalizedRequestId = requestId?.trim();
+
+    // If this is a retry, return the existing notification.
+    if (normalizedRequestId) {
+      const existingNotification = await Notification.findOne({
+        userId,
+        requestId: normalizedRequestId,
+      });
+
+      if (existingNotification) {
+        return res.status(200).json({
+          success: true,
+          message: "Notification already created.",
+          notification: existingNotification,
+        });
+      }
+    }
+
+    let notification;
+
+    try {
+      // Save the new notification in MongoDB.
+      notification = await Notification.create({
+        userId,
+        title: title.trim(),
+        message: message.trim(),
+        type: type?.trim() || "general",
+        ...(normalizedRequestId
+          ? { requestId: normalizedRequestId }
+          : {}),
+      });
+    } catch (error) {
+      // A unique index can reject simultaneous requests with
+      // the same userId and requestId.
+      if (error.code === 11000 && normalizedRequestId) {
+        const existingNotification = await Notification.findOne({
+          userId,
+          requestId: normalizedRequestId,
+        });
+
+        if (existingNotification) {
+          return res.status(200).json({
+            success: true,
+            message: "Notification already created.",
+            notification: existingNotification,
+          });
+        }
+      }
+
+      throw error;
+    }
+
+    // Emit a real-time event to this user's Socket.IO room.
+    const io = req.app.get("io");
+
+    if (io) {
+      io.to(String(notification.userId)).emit(
+        "newNotification",
+        notification
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: "Notification created successfully.",
+      notification,
+    });
+  } catch (error) {
+    console.error("Create notification error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to create notification.",
+    });
+  }
+};
 
 
 // ======================================================
@@ -51,66 +150,87 @@ const createNotification = async (req, res) => {
 // ======================================================
 
 const getUserNotifications = async (req, res) => {
-    try {
-        // Find notifications belonging to logged-in user
-        const notifications = await Notification.find({
-            userId: req.user.id,
-        }).sort({ createdAt: -1 });
+  try {
+    const userId = req.user?.id;
 
-        res.status(200).json({
-            success: true,
-            count: notifications.length,
-            notifications,
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
     }
+
+    // Fetch only notifications belonging to the logged-in user.
+    const notifications = await Notification.find({ userId })
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: notifications.length,
+      notifications,
+    });
+  } catch (error) {
+    console.error("Get notifications error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to retrieve notifications.",
+    });
+  }
 };
 
 
-// Export controllers
 // ======================================================
 // MARK NOTIFICATION AS READ
 // ======================================================
 
 const markNotificationAsRead = async (req, res) => {
-    try {
-        const notification = await Notification.findOneAndUpdate(
-            {
-                _id: req.params.id,
-                userId: req.user.id,
-            },
-            {
-                isRead: true,
-            },
-            {
-                new: true,
-            }
-        );
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
 
-        if (!notification) {
-            return res.status(404).json({
-                success: false,
-                message: "Notification not found",
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: "Notification marked as read",
-            notification,
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
     }
+
+    // Validate the MongoDB document ID.
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid notification ID.",
+      });
+    }
+
+    // Update only a notification owned by the logged-in user.
+    const notification = await Notification.findOneAndUpdate(
+      { _id: id, userId },
+      { $set: { isRead: true } },
+      { new: true, runValidators: true }
+    );
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification marked as read.",
+      notification,
+    });
+  } catch (error) {
+    console.error("Mark notification as read error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to update notification.",
+    });
+  }
 };
 
 
@@ -119,61 +239,99 @@ const markNotificationAsRead = async (req, res) => {
 // ======================================================
 
 const deleteNotification = async (req, res) => {
-    try {
-        const notification = await Notification.findOneAndDelete({
-            _id: req.params.id,
-            userId: req.user.id,
-        });
+  try {
+    const userId = req.user?.id;
+    const { id } = req.params;
 
-        if (!notification) {
-            return res.status(404).json({
-                success: false,
-                message: "Notification not found",
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            message: "Notification deleted successfully",
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
     }
+
+    // Reject malformed notification IDs.
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid notification ID.",
+      });
+    }
+
+    // Delete only the notification owned by this user.
+    const notification = await Notification.findOneAndDelete({
+      _id: id,
+      userId,
+    });
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Notification deleted successfully.",
+      id: notification._id,
+    });
+  } catch (error) {
+    console.error("Delete notification error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to delete notification.",
+    });
+  }
 };
+
 
 // ======================================================
 // GET UNREAD NOTIFICATION COUNT
 // ======================================================
 
 const getUnreadNotificationCount = async (req, res) => {
-    try {
-        // Count unread notifications belonging to the logged-in user
-        const count = await Notification.countDocuments({
-            userId: req.user.id,
-            isRead: false,
-        });
+  try {
+    const userId = req.user?.id;
 
-        res.status(200).json({
-            success: true,
-            unreadCount: count,
-        });
-
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message,
-        });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required.",
+      });
     }
+
+    // Count unread notifications belonging to the logged-in user.
+    const count = await Notification.countDocuments({
+      userId,
+      isRead: false,
+    });
+
+    return res.status(200).json({
+      success: true,
+      count,
+    });
+  } catch (error) {
+    console.error("Unread notification count error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to retrieve unread count.",
+    });
+  }
 };
-// Export controllers
+
+
+// ======================================================
+// EXPORT ALL CONTROLLER FUNCTIONS
+// ======================================================
+
+// These names must match notificationRoutes.js imports.
 module.exports = {
-    createNotification,
-    getUserNotifications,
-    markNotificationAsRead,
-    deleteNotification,
-    getUnreadNotificationCount
+  createNotification,
+  getUserNotifications,
+  markNotificationAsRead,
+  deleteNotification,
+  getUnreadNotificationCount,
 };

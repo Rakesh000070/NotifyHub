@@ -1,144 +1,206 @@
-// Import the User model.
-// We use this model to interact with the users collection in MongoDB.
+
+/*
+========================================================
+AUTH CONTROLLER
+========================================================
+This file handles:
+1. User registration
+2. User login
+3. Password hashing and comparison
+4. JWT token generation
+*/
+
+// Import the User model to interact with MongoDB.
 const User = require("../models/User");
 
-// bcrypt is used to securely hash passwords
-// and compare passwords during login.
+// Import bcrypt to hash passwords and compare login passwords.
 const bcrypt = require("bcryptjs");
 
-// jsonwebtoken is used to create JWT authentication tokens.
+// Import JWT to generate authentication tokens.
 const jwt = require("jsonwebtoken");
+
+
+// ======================================================
+// HELPER FUNCTION: GENERATE JWT TOKEN
+// ======================================================
+
+/*
+Creates a JWT token containing the user's ID.
+
+The token expires after 7 days.
+The JWT_SECRET must be configured in the server's .env file.
+*/
+const generateToken = (userId) => {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not configured");
+  }
+
+  return jwt.sign(
+    {
+      id: userId.toString(),
+    },
+    process.env.JWT_SECRET,
+    {
+      expiresIn: "7d",
+    }
+  );
+};
 
 
 // ======================================================
 // REGISTER USER
 // ======================================================
 
-// Controller function to handle user registration.
+/*
+POST /api/auth/register
+
+Expected request body:
+{
+  "name": "Rakesh Nayak",
+  "email": "rakesh@example.com",
+  "password": "yourpassword"
+}
+*/
 const registerUser = async (req, res) => {
   try {
-    // Get user information from the request body.
-    const { name, email, password } = req.body;
+    // Read the registration information from the request.
+    const { name, email, password } = req.body || {};
 
-
-    // --------------------------------------------------
-    // 1. Check if user already exists
-    // --------------------------------------------------
-
-    const existingUser = await User.findOne({ email });
-
-    if (existingUser) {
+    // Validate the supplied fields before accessing the database.
+    if (
+      typeof name !== "string" ||
+      !name.trim() ||
+      typeof email !== "string" ||
+      !email.trim() ||
+      typeof password !== "string" ||
+      password.length < 8
+    ) {
       return res.status(400).json({
         success: false,
         message:
-          "User already exists. Try to login or use another email.",
+          "Name and email are required. Password must be at least 8 characters.",
       });
     }
 
+    // Normalize the email so capitalization and surrounding
+    // whitespace do not create inconsistent account lookups.
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // --------------------------------------------------
-    // 2. Hash the password
-    // --------------------------------------------------
+    // Check whether an account with this email already exists.
+    const existingUser = await User.findOne({
+      email: normalizedEmail,
+    });
 
-    // Convert the plain-text password into a secure hash.
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "User already exists. Please log in or use another email.",
+      });
+    }
+
+    // Hash the password before saving it to MongoDB.
     const hashedPassword = await bcrypt.hash(password, 10);
 
-
-    // --------------------------------------------------
-    // 3. Create the user
-    // --------------------------------------------------
-
+    // Create the user with the hashed password.
     const newUser = await User.create({
-      name,
-      email,
+      name: name.trim(),
+      email: normalizedEmail,
       password: hashedPassword,
     });
 
+    // Generate a JWT token for the newly registered user.
+    const token = generateToken(newUser._id);
 
-    // --------------------------------------------------
-    // 4. Generate JWT token
-    // --------------------------------------------------
-
-    const token = jwt.sign(
-      {
-        id: newUser._id,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
-
-
-    // --------------------------------------------------
-    // 5. Hide password from response
-    // --------------------------------------------------
-
-    newUser.password = undefined;
-
-
-    // --------------------------------------------------
-    // 6. Send successful response
-    // --------------------------------------------------
-
-    res.status(201).json({
+    // Return the user details without exposing the password hash.
+    return res.status(201).json({
       success: true,
-      message: "User Registered Successfully",
+      message: "User registered successfully",
       token,
-      user: newUser,
+      user: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role,
+      },
     });
-
   } catch (error) {
+    // Log technical details on the server for debugging.
+    console.error("Register user error:", error);
 
-    // Handle unexpected errors.
-    res.status(500).json({
+    // Handle duplicate email errors from MongoDB, including
+    // registrations submitted simultaneously.
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "An account with this email already exists.",
+      });
+    }
+
+    // Avoid exposing internal server details to the client.
+    return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to register user.",
     });
   }
 };
-
 
 
 // ======================================================
 // LOGIN USER
 // ======================================================
 
-// Controller function to handle user login.
+/*
+POST /api/auth/login
+
+Expected request body:
+{
+  "email": "rakesh@example.com",
+  "password": "yourpassword"
+}
+*/
 const loginUser = async (req, res) => {
   try {
+    // Read the login credentials from the request.
+    const { email, password } = req.body || {};
 
-    // Get email and password from request body.
-    const { email, password } = req.body;
-
-
-    // --------------------------------------------------
-    // 1. Find user by email
-    // --------------------------------------------------
-
-    const user = await User.findOne({ email });
-
-    if (!user) {
-      return res.status(404).json({
+    // Validate the credentials before querying the database.
+    if (
+      typeof email !== "string" ||
+      !email.trim() ||
+      typeof password !== "string" ||
+      !password
+    ) {
+      return res.status(400).json({
         success: false,
-        message: "User not found",
+        message: "Email and password are required.",
       });
     }
 
+    // Use the same email normalization as registration.
+    const normalizedEmail = email.trim().toLowerCase();
 
-    // --------------------------------------------------
-    // 2. Compare password
-    // --------------------------------------------------
+    // Find the user account in MongoDB.
+    const user = await User.findOne({
+      email: normalizedEmail,
+    });
 
-    // Compare the password entered by the user
-    // with the hashed password stored in MongoDB.
+    // Use the same error for an unknown account and an incorrect
+    // password to avoid revealing whether an account exists.
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password",
+      });
+    }
+
+    // Compare the submitted password with the stored password hash.
     const isPasswordCorrect = await bcrypt.compare(
       password,
       user.password
     );
 
-
-    // If password is incorrect.
+    // Reject the login if the passwords do not match.
     if (!isPasswordCorrect) {
       return res.status(401).json({
         success: false,
@@ -146,36 +208,13 @@ const loginUser = async (req, res) => {
       });
     }
 
+    // Generate a JWT token for the authenticated user.
+    const token = generateToken(user._id);
 
-    // --------------------------------------------------
-    // 3. Generate JWT token
-    // --------------------------------------------------
-
-    const token = jwt.sign(
-      {
-        id: user._id,
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "7d",
-      }
-    );
-
-
-    // --------------------------------------------------
-    // 4. Hide password
-    // --------------------------------------------------
-
-    user.password = undefined;
-
-
-    // --------------------------------------------------
-    // 5. Send successful login response
-    // --------------------------------------------------
-
-    res.status(200).json({
+    // Return the token and safe user details, not the password.
+    return res.status(200).json({
       success: true,
-      message: "Login Successful",
+      message: "Login successful",
       token,
       user: {
         id: user._id,
@@ -184,23 +223,24 @@ const loginUser = async (req, res) => {
         role: user.role,
       },
     });
-
   } catch (error) {
+    // Log the detailed error on the server.
+    console.error("Login user error:", error);
 
-    // Handle unexpected errors.
-    res.status(500).json({
+    // Return a generic message to the client.
+    return res.status(500).json({
       success: false,
-      message: error.message,
+      message: "Unable to log in.",
     });
   }
 };
-
 
 
 // ======================================================
 // EXPORT CONTROLLERS
 // ======================================================
 
+// These names must match the imports in authRoutes.js.
 module.exports = {
   registerUser,
   loginUser,

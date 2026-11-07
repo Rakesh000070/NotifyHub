@@ -1,45 +1,76 @@
+
+/*
+========================================================
+USER MODEL
+========================================================
+Defines the structure of user documents stored in MongoDB.
+
+Fields:
+1. name
+2. email
+3. password
+4. role
+5. createdAt and updatedAt (automatic timestamps)
+*/
+
 const mongoose = require("mongoose");
 
+
+// ======================================================
+// USER SCHEMA
+// ======================================================
+
 const userSchema = new mongoose.Schema(
-    {
-        name: {
-            type: String,
-            required: true,
-            trim: true,
-        },
-
-        email: {
-            type: String,
-            required: true,
-            unique: true,
-            lowercase: true,
-            trim: true,
-        },
-
-        password: {
-            type: String,
-            required: true,
-        },
-
-        role: {
-            type: String,
-            enum: ["user", "admin"],
-            default: "user",
-        },
+  {
+    // User's display name.
+    name: {
+      type: String,
+      required: true,
+      trim: true,
     },
 
-    {
-       /*
-    timestamps: true
+    // User's email address.
+    // Mongoose converts it to lowercase and removes
+    // surrounding whitespace.
+    // The unique index prevents duplicate email addresses.
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
 
-    Mongoose automatically creates:
-    1. createdAt -> Stores the document creation date.
-    2. updatedAt -> Updates automatically whenever the document is edited.
+    // Store the hashed password, never the plain-text password.
+    // Password hashing is handled by authController.js.
+    password: {
+      type: String,
+      required: true,
+    },
 
-    No need to manually manage these fields.
-  */
-        timestamps: true,   
-    }
+    // Account role, used for role-based authorization.
+    // New accounts are regular users by default.
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
+  },
+  {
+    // Mongoose automatically manages these fields:
+    // createdAt -> when the document was created
+    // updatedAt -> when the document was last updated
+    timestamps: true,
+  }
 );
 
-module.exports = mongoose.model("user", userSchema);
+
+// ======================================================
+// EXPORT USER MODEL
+// ======================================================
+
+// Keep "user" because this is your existing registered model name.
+// Notification.js must use ref: "user" to match this name.
+module.exports =
+  mongoose.models.user ||
+  mongoose.model("user", userSchema);

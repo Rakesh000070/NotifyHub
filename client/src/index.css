@@ -1,111 +1,564 @@
+/* =====================================================
+   NotifyHub — Global Styles
+   Modern, responsive notification dashboard
+   ===================================================== */
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
-
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
+  font-family: Inter, "Segoe UI", Roboto, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
+  /* Colors */
+  --text: #625b71;
+  --text-h: #191426;
+  --bg: #f8f7fc;
+  --surface: #ffffff;
+  --border: #e9e5f0;
+  --code-bg: #f2eef8;
+
+  /* Brand */
+  --accent: #9333ea;
+  --accent-hover: #7e22ce;
+  --accent-bg: #f4eaff;
+  --accent-border: #d8b4fe;
+
+  /* Status */
+  --success: #15803d;
+  --success-bg: #dcfce7;
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --danger-bg: #fee2e2;
+  --warning: #b45309;
+  --warning-bg: #fef3c7;
+
+  /* Effects */
+  --shadow-sm: 0 2px 8px rgba(31, 20, 50, 0.04);
+  --shadow-md: 0 8px 24px rgba(31, 20, 50, 0.08);
+  --shadow-lg: 0 16px 40px rgba(31, 20, 50, 0.12);
+
+  /* Shape and spacing */
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --transition: 180ms ease;
+
+  color: var(--text);
+  background: var(--bg);
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+/* =====================================================
+   Reset and base styles
+   ===================================================== */
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-body {
-  margin: 0;
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+* {
   box-sizing: border-box;
 }
 
+html {
+  min-width: 320px;
+  min-height: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+input,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
 h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
+h2,
+h3,
+h4 {
+  margin-top: 0;
+  color: var(--text-h);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+p {
+  margin-top: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+::selection {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+/* Visible keyboard focus */
+:focus-visible {
+  outline: 3px solid var(--accent-border);
+  outline-offset: 3px;
+}
+
+/* =====================================================
+   Main application container
+   ===================================================== */
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0 auto;
+}
+
+.app {
+  width: min(100% - 40px, 1120px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 40px 0 64px;
+}
+
+/* =====================================================
+   Dashboard header
+   ===================================================== */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 36px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header h1,
+.login-container h1 {
+  margin: 0 0 8px;
+  font-size: clamp(28px, 4vw, 38px);
+  letter-spacing: -1.2px;
+}
+
+.app-header p,
+.login-container > p {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+}
+
+/* =====================================================
+   Buttons
+   ===================================================== */
+
+button {
+  min-height: 42px;
+  padding: 10px 17px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition),
+    transform var(--transition);
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.app-header > button {
+  flex-shrink: 0;
+  border-color: var(--border);
+  background: var(--surface);
   color: var(--text-h);
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+.app-header > button:hover:not(:disabled) {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent-hover);
+}
+
+/* =====================================================
+   Notifications section
+   ===================================================== */
+
+.notifications-section {
+  width: 100%;
+}
+
+.notifications-section > h2 {
+  margin-bottom: 22px;
+  font-size: 22px;
+  letter-spacing: -0.4px;
+}
+
+.notification-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+
+/* =====================================================
+   Notification cards
+   ===================================================== */
+
+.notification-card {
+  min-width: 0;
+  padding: 22px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color var(--transition),
+    box-shadow var(--transition),
+    transform var(--transition);
+}
+
+.notification-card:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.notification-card h3 {
+  margin-bottom: 10px;
+  font-size: 17px;
+  letter-spacing: -0.2px;
+}
+
+.notification-card > p {
+  margin-bottom: 18px;
+  color: var(--text);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.notification-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.notification-meta span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Timestamp and ID */
+.notification-card small {
+  display: block;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.notification-card .notification-id {
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* =====================================================
+   Notification actions
+   ===================================================== */
+
+.notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.notification-actions button {
+  min-height: 38px;
+  padding: 8px 13px;
+  font-size: 13px;
+}
+
+.notification-actions button:first-child {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent-hover);
+}
+
+.notification-actions button:first-child:hover:not(:disabled) {
+  background: #ead5ff;
+}
+
+.notification-actions button:last-child {
+  border-color: #fecaca;
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.notification-actions button:last-child:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: #fecaca;
+  color: var(--danger-hover);
+}
+
+/* =====================================================
+   Login screen
+   ===================================================== */
+
+.login-container {
+  width: min(100%, 420px);
+  margin: clamp(48px, 12vh, 120px) auto;
+  padding: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.login-container h1 {
+  font-size: 32px;
+}
+
+.login-container > p {
+  margin-bottom: 28px;
+}
+
+.login-container form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-container label {
+  margin-top: 8px;
+  color: var(--text-h);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-container input {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-h);
+  outline: none;
+  transition:
+    border-color var(--transition),
+    box-shadow var(--transition);
+}
+
+.login-container input::placeholder {
+  color: #9991a7;
+}
+
+.login-container input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+.login-container form button {
+  width: 100%;
+  margin-top: 18px;
+}
+
+/* =====================================================
+   Loading, empty state and error messages
+   ===================================================== */
+
+.error {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger-hover);
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.notifications-section > p {
+  margin: 16px 0;
+}
+
+.notifications-section > p:not(.error) {
+  color: var(--text);
+}
+
+/* =====================================================
+   Dark mode
+   ===================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #b5afc5;
+    --text-h: #f4f0fa;
+    --bg: #14111b;
+    --surface: #1e1928;
+    --border: #342b43;
+    --code-bg: #292136;
+
+    --accent: #c084fc;
+    --accent-hover: #d8b4fe;
+    --accent-bg: #30203f;
+    --accent-border: #70429a;
+
+    --success: #4ade80;
+    --success-bg: #173522;
+    --danger: #fca5a5;
+    --danger-hover: #fecaca;
+    --danger-bg: #3a2028;
+    --warning: #fcd34d;
+    --warning-bg: #392f1a;
+
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.16);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.24);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.3);
+
+    color-scheme: dark;
+  }
+
+  .notification-actions button:first-child:hover:not(:disabled) {
+    background: #422b57;
+  }
+
+  .notification-actions button:last-child:hover:not(:disabled) {
+    background: #51272e;
+  }
+
+  .error {
+    border-color: #71343b;
+    background: var(--danger-bg);
+    color: var(--danger);
   }
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
+
+/* =====================================================
+   Responsive layouts
+   ===================================================== */
+
+@media (max-width: 760px) {
+  .app {
+    width: min(100% - 32px, 600px);
+    padding-top: 28px;
+  }
+
+  .app-header {
+    align-items: flex-start;
+    margin-bottom: 28px;
+    padding-bottom: 22px;
+  }
+
+  .notification-list {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .notification-card {
+    padding: 19px;
+  }
+}
+
+@media (max-width: 420px) {
+  .app {
+    width: calc(100% - 24px);
+    padding-top: 22px;
+  }
+
+  .app-header {
+    gap: 12px;
+  }
+
+  .app-header h1 {
+    font-size: 27px;
+  }
+
+  .app-header p {
+    font-size: 13px;
+  }
+
+  .app-header > button {
+    min-height: 38px;
+    padding: 8px 11px;
+    font-size: 13px;
+  }
+
+  .notifications-section > h2 {
     font-size: 20px;
   }
-}
-p {
-  margin: 0;
+
+  .notification-card {
+    padding: 16px;
+  }
+
+  .notification-actions button {
+    flex: 1;
+  }
+
+  .login-container {
+    padding: 24px 19px;
+  }
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
