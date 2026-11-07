@@ -8,7 +8,7 @@
 
 NotifyHub is a MERN-based notification system designed to manage user notifications through a REST API, with real-time delivery being developed using Socket.IO.
 
-The project focuses on authentication, notification management, modular backend architecture, and real-time communication. It is being built incrementally, with additional capabilities planned for future releases.
+The project focuses on authentication, notification management, modular backend architecture, and real-time communication.
 
 ## 📑 Table of Contents
 
@@ -33,8 +33,6 @@ The project focuses on authentication, notification management, modular backend 
 NotifyHub is a learning-oriented full-stack project that explores how a notification system can be built using MongoDB, Express.js, React, and Node.js.
 
 The application currently includes JWT-based authentication and notification management APIs. Socket.IO integration is being developed to support live updates without requiring users to refresh the page.
-
-The project also provides an opportunity to explore API design, database modeling, authentication middleware, and maintainable application structure.
 
 ## ✨ Features
 
