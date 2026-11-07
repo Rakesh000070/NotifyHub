@@ -9,11 +9,11 @@ Handles:
 3. Marking notifications as read
 4. Deleting notifications
 5. Counting unread notifications
+6. Synchronizing notification changes in real time
 */
 
 const mongoose = require("mongoose");
 const Notification = require("../models/Notification");
-
 
 // ======================================================
 // CREATE NOTIFICATION
@@ -56,7 +56,7 @@ const createNotification = async (req, res) => {
       });
     }
 
-    // Validate the notification type when provided.
+    // Validate notification type when provided.
     if (
       type !== undefined &&
       (typeof type !== "string" || !type.trim())
@@ -69,7 +69,7 @@ const createNotification = async (req, res) => {
 
     const normalizedRequestId = requestId?.trim();
 
-    // If this is a retry, return the existing notification.
+    // Return the existing notification for a repeated request.
     if (normalizedRequestId) {
       const existingNotification = await Notification.findOne({
         userId,
@@ -99,8 +99,7 @@ const createNotification = async (req, res) => {
           : {}),
       });
     } catch (error) {
-      // A unique index can reject simultaneous requests with
-      // the same userId and requestId.
+      // Handle simultaneous requests with the same requestId.
       if (error.code === 11000 && normalizedRequestId) {
         const existingNotification = await Notification.findOne({
           userId,
@@ -119,7 +118,7 @@ const createNotification = async (req, res) => {
       throw error;
     }
 
-    // Emit a real-time event to this user's Socket.IO room.
+    // Emit the new notification to the user's private room.
     const io = req.app.get("io");
 
     if (io) {
@@ -143,7 +142,6 @@ const createNotification = async (req, res) => {
     });
   }
 };
-
 
 // ======================================================
 // GET USER NOTIFICATIONS
@@ -178,7 +176,6 @@ const getUserNotifications = async (req, res) => {
     });
   }
 };
-
 
 // ======================================================
 // MARK NOTIFICATION AS READ
@@ -218,6 +215,19 @@ const markNotificationAsRead = async (req, res) => {
       });
     }
 
+    // Notify all connected tabs belonging to this user.
+    const io = req.app.get("io");
+
+    if (io) {
+      io.to(String(notification.userId)).emit(
+        "notificationUpdated",
+        {
+          notificationId: String(notification._id),
+          isRead: true,
+        }
+      );
+    }
+
     return res.status(200).json({
       success: true,
       message: "Notification marked as read.",
@@ -232,7 +242,6 @@ const markNotificationAsRead = async (req, res) => {
     });
   }
 };
-
 
 // ======================================================
 // DELETE NOTIFICATION
@@ -250,7 +259,7 @@ const deleteNotification = async (req, res) => {
       });
     }
 
-    // Reject malformed notification IDs.
+    // Validate the MongoDB document ID.
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
@@ -258,7 +267,7 @@ const deleteNotification = async (req, res) => {
       });
     }
 
-    // Delete only the notification owned by this user.
+    // Delete only a notification owned by the logged-in user.
     const notification = await Notification.findOneAndDelete({
       _id: id,
       userId,
@@ -269,6 +278,18 @@ const deleteNotification = async (req, res) => {
         success: false,
         message: "Notification not found.",
       });
+    }
+
+    // Notify all connected tabs belonging to this user.
+    const io = req.app.get("io");
+
+    if (io) {
+      io.to(String(notification.userId)).emit(
+        "notificationDeleted",
+        {
+          notificationId: String(notification._id),
+        }
+      );
     }
 
     return res.status(200).json({
@@ -285,7 +306,6 @@ const deleteNotification = async (req, res) => {
     });
   }
 };
-
 
 // ======================================================
 // GET UNREAD NOTIFICATION COUNT
@@ -322,12 +342,10 @@ const getUnreadNotificationCount = async (req, res) => {
   }
 };
 
-
 // ======================================================
 // EXPORT ALL CONTROLLER FUNCTIONS
 // ======================================================
 
-// These names must match notificationRoutes.js imports.
 module.exports = {
   createNotification,
   getUserNotifications,

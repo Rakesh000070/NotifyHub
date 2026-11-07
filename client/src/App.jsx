@@ -4,241 +4,146 @@ import { io } from "socket.io-client";
 import "./App.css";
 
 const API_URL = "http://localhost:5000";
+const TOKEN_KEY = "notifyhub_token";
 
-// Safely parse JSON responses, including empty responses.
+// Safely parse API responses.
 async function readResponse(response) {
   const text = await response.text();
 
-  if (!text) return {};
+  let data = {};
 
   try {
-    return JSON.parse(text);
+    data = text ? JSON.parse(text) : {};
   } catch {
-    return { message: text };
+    data = { message: text || "Invalid server response." };
   }
-}
 
-// Read the unread count from common API response formats.
-function getUnreadCount(data) {
-  const count =
-    data.unreadCount ??
-    data.count ??
-    data.data?.unreadCount ??
-    data.data?.count;
-
-  if (
-    count === undefined ||
-    count === null ||
-    count === "" ||
-    !Number.isFinite(Number(count)) ||
-    Number(count) < 0
-  ) {
+  if (!response.ok) {
     throw new Error(
-      "The unread-count API returned an unexpected response."
+      data.message || `Request failed with status ${response.status}.`
     );
   }
 
-  return Number(count);
+  return data;
+}
+
+// Support the unread-count response formats used by the API.
+function getUnreadCount(data) {
+  return Number(
+    data?.count ??
+      data?.unreadCount ??
+      data?.data?.count ??
+      data?.data?.unreadCount ??
+      0
+  );
+}
+
+// Get a consistent notification ID.
+function getNotificationId(notification) {
+  return String(notification?._id ?? notification?.id ?? "");
 }
 
 function App() {
   const [token, setToken] = useState(
-    () => localStorage.getItem("notifyhub_token") || ""
+    () => localStorage.getItem(TOKEN_KEY) || ""
   );
 
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [actionInProgress, setActionInProgress] = useState({});
 
-  // Fetch the unread count from the backend.
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [type, setType] = useState("general");
+
+  const [actionInProgress, setActionInProgress] = useState("");
+
+  // ====================================================
+  // FETCH NOTIFICATIONS
+  // ====================================================
+
+  const loadNotifications = useCallback(async (authToken = token) => {
+    if (!authToken) return;
+
+    const response = await fetch(`${API_URL}/api/notifications`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    });
+
+    const data = await readResponse(response);
+
+    const list = Array.isArray(data.notifications)
+      ? data.notifications
+      : Array.isArray(data.data?.notifications)
+        ? data.data.notifications
+        : [];
+
+    setNotifications(list);
+  }, [token]);
+
+  // ====================================================
+  // FETCH UNREAD COUNT
+  // ====================================================
+
   const refreshUnreadCount = useCallback(
-    async (currentToken = token) => {
-      if (!currentToken) {
-        setUnreadCount(0);
-        return;
-      }
+    async (authToken = token) => {
+      if (!authToken) return;
 
       const response = await fetch(
         `${API_URL}/api/notifications/unread-count`,
         {
+          method: "GET",
           headers: {
-            Authorization: `Bearer ${currentToken}`,
+            Authorization: `Bearer ${authToken}`,
           },
-          cache: "no-store",
         }
       );
 
       const data = await readResponse(response);
-
-      if (!response.ok) {
-        throw new Error(
-          data.message || "Failed to fetch unread count."
-        );
-      }
-
-      const count = getUnreadCount(data);
-      setUnreadCount(count);
+      setUnreadCount(getUnreadCount(data));
     },
     [token]
   );
 
-  // Load notifications and establish the Socket.IO connection.
-  useEffect(() => {
-    if (!token) {
-      setNotifications([]);
-      setUnreadCount(0);
-      setLoading(false);
-      return;
-    }
+  // Refresh both pieces of notification data.
+  const refreshNotificationData = useCallback(
+    async (authToken = token) => {
+      if (!authToken) return;
 
-    const controller = new AbortController();
-    let active = true;
+      const results = await Promise.allSettled([
+        loadNotifications(authToken),
+        refreshUnreadCount(authToken),
+      ]);
 
-    const socket = io(API_URL, {
-      auth: { token },
-    });
+      const failedRequest = results.find(
+        (result) => result.status === "rejected"
+      );
 
-    async function loadNotifications() {
-      try {
-        setLoading(true);
-        setError("");
-
-        const response = await fetch(
-          `${API_URL}/api/notifications`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-            cache: "no-store",
-            signal: controller.signal,
-          }
-        );
-
-        const data = await readResponse(response);
-
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403) {
-            localStorage.removeItem("notifyhub_token");
-
-            if (active) {
-              setToken("");
-            }
-          }
-
-          throw new Error(
-            data.message || "Failed to load notifications."
-          );
-        }
-
-        if (!active) return;
-
-        const list = Array.isArray(data.notifications)
-          ? data.notifications
-          : Array.isArray(data.data?.notifications)
-            ? data.data.notifications
-            : [];
-
-        const uniqueNotifications = Array.from(
-          new Map(
-            list.map((notification) => [
-              notification._id,
-              notification,
-            ])
-          ).values()
-        );
-
-        uniqueNotifications.sort(
-          (a, b) =>
-            new Date(b.createdAt || 0) -
-            new Date(a.createdAt || 0)
-        );
-
-        setNotifications(uniqueNotifications);
-      } catch (err) {
-        if (err.name === "AbortError") return;
-
-        console.error("Notification fetch error:", err);
-
-        if (active) {
-          setError(
-            err.message || "Unable to load notifications."
-          );
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+      if (failedRequest) {
+        throw failedRequest.reason;
       }
-    }
+    },
+    [loadNotifications, refreshUnreadCount, token]
+  );
 
-    // Initial Socket.IO connection logs.
-    socket.on("connect", () => {
-      console.log("✅ Socket connected:", socket.id);
-    });
+  // ====================================================
+  // LOGIN
+  // ====================================================
 
-    socket.on("connect_error", (err) => {
-      console.error(
-        "❌ Socket connection error:",
-        err.message
-      );
-      console.error(
-        "Details:",
-        err.description || err.context || "No extra details"
-      );
-    });
-
-    socket.on("disconnect", (reason) => {
-      console.log("⚠️ Socket disconnected:", reason);
-    });
-
-    // Receive new notifications without refreshing the page.
-    socket.on("newNotification", (notification) => {
-      if (!active || !notification?._id) return;
-
-      setNotifications((current) => {
-        const alreadyExists = current.some(
-          (item) => item._id === notification._id
-        );
-
-        if (alreadyExists) return current;
-
-        return [notification, ...current];
-      });
-
-      // Let the backend calculate the authoritative unread count.
-      refreshUnreadCount(token).catch((err) => {
-        console.error("Unread count refresh error:", err.message);
-      });
-    });
-
-    loadNotifications();
-
-    // Load the initial unread count.
-    refreshUnreadCount(token).catch((err) => {
-      console.error("Initial unread count error:", err.message);
-    });
-
-    return () => {
-      active = false;
-      controller.abort();
-
-      socket.off("connect");
-      socket.off("connect_error");
-      socket.off("disconnect");
-      socket.off("newNotification");
-
-      socket.disconnect();
-    };
-  }, [token, refreshUnreadCount]);
-
-  // Login.
-  async function handleLogin(event) {
+  const handleLogin = async (event) => {
     event.preventDefault();
+
     setError("");
+    setSuccess("");
+    setLoading(true);
 
     try {
       const response = await fetch(`${API_URL}/api/auth/login`, {
@@ -251,52 +156,103 @@ function App() {
 
       const data = await readResponse(response);
 
-      if (!response.ok) {
-        throw new Error(data.message || "Login failed.");
-      }
-
       const receivedToken =
-        data.token ||
-        data.accessToken ||
-        data.data?.token;
+        data.token || data.accessToken || data.data?.token;
 
       if (!receivedToken) {
-        throw new Error(
-          "No authentication token was returned."
-        );
+        throw new Error("Login succeeded, but the server returned no token.");
       }
 
-      localStorage.setItem("notifyhub_token", receivedToken);
+      localStorage.setItem(TOKEN_KEY, receivedToken);
       setToken(receivedToken);
       setPassword("");
+      setSuccess("Login successful.");
     } catch (err) {
-      console.error("Login error:", err);
       setError(err.message || "Unable to log in.");
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
-  // Logout.
-  function handleLogout() {
-    localStorage.removeItem("notifyhub_token");
+  // ====================================================
+  // LOGOUT
+  // ====================================================
+
+  const handleLogout = () => {
+    localStorage.removeItem(TOKEN_KEY);
 
     setToken("");
     setNotifications([]);
     setUnreadCount(0);
-    setError("");
-    setActionInProgress({});
+
+    setEmail("");
     setPassword("");
-  }
-
-  // Mark a notification as read.
-  async function handleMarkAsRead(id) {
-    if (actionInProgress[id]) return;
-
-    setActionInProgress((current) => ({
-      ...current,
-      [id]: true,
-    }));
+    setTitle("");
+    setMessage("");
+    setType("general");
 
     setError("");
+    setSuccess("");
+    setActionInProgress("");
+  };
+
+  // ====================================================
+  // CREATE NOTIFICATION
+  // ====================================================
+
+  const handleCreateNotification = async (event) => {
+    event.preventDefault();
+
+    if (!title.trim() || !message.trim()) {
+      setError("Please enter both a title and a message.");
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setActionInProgress("create");
+
+    try {
+      const response = await fetch(`${API_URL}/api/notifications`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: title.trim(),
+          message: message.trim(),
+          type,
+        }),
+      });
+
+      await readResponse(response);
+
+      setTitle("");
+      setMessage("");
+      setType("general");
+
+      // Refresh the current tab immediately.
+      await refreshNotificationData(token);
+
+      setSuccess("Notification created successfully.");
+    } catch (err) {
+      setError(err.message || "Unable to create notification.");
+    } finally {
+      setActionInProgress("");
+    }
+  };
+
+  // ====================================================
+  // MARK NOTIFICATION AS READ
+  // ====================================================
+
+  const handleMarkAsRead = async (id) => {
+    if (!id) return;
+
+    setError("");
+    setSuccess("");
+    setActionInProgress(`read-${id}`);
 
     try {
       const response = await fetch(
@@ -309,45 +265,26 @@ function App() {
         }
       );
 
-      const data = await readResponse(response);
+      await readResponse(response);
 
-      if (!response.ok) {
-        throw new Error(
-          data.message || "Unable to mark as read."
-        );
-      }
+      // The server emits notificationUpdated to every tab.
+      // Refresh this tab as well so it does not rely on the socket.
+      await refreshNotificationData(token);
 
-      setNotifications((current) =>
-        current.map((notification) =>
-          notification._id === id
-            ? {
-                ...notification,
-                ...(data.notification || {}),
-                isRead: true,
-              }
-            : notification
-        )
-      );
-
-      // Recalculate using the backend after the successful update.
-      await refreshUnreadCount(token);
+      setSuccess("Notification marked as read.");
     } catch (err) {
-      console.error("Mark as read error:", err);
-      setError(
-        err.message || "Unable to mark notification as read."
-      );
+      setError(err.message || "Unable to mark notification as read.");
     } finally {
-      setActionInProgress((current) => {
-        const updated = { ...current };
-        delete updated[id];
-        return updated;
-      });
+      setActionInProgress("");
     }
-  }
+  };
 
-  // Delete a notification.
-  async function handleDelete(id) {
-    if (actionInProgress[id]) return;
+  // ====================================================
+  // DELETE NOTIFICATION
+  // ====================================================
+
+  const handleDelete = async (id) => {
+    if (!id) return;
 
     const confirmed = window.confirm(
       "Are you sure you want to delete this notification?"
@@ -355,12 +292,9 @@ function App() {
 
     if (!confirmed) return;
 
-    setActionInProgress((current) => ({
-      ...current,
-      [id]: true,
-    }));
-
     setError("");
+    setSuccess("");
+    setActionInProgress(`delete-${id}`);
 
     try {
       const response = await fetch(
@@ -373,81 +307,209 @@ function App() {
         }
       );
 
-      const data = await readResponse(response);
+      await readResponse(response);
 
-      if (!response.ok) {
-        throw new Error(
-          data.message || "Unable to delete notification."
+      // The server emits notificationDeleted to every tab.
+      await refreshNotificationData(token);
+
+      setSuccess("Notification deleted successfully.");
+    } catch (err) {
+      setError(err.message || "Unable to delete notification.");
+    } finally {
+      setActionInProgress("");
+    }
+  };
+
+  // ====================================================
+  // INITIAL LOAD + SOCKET.IO
+  // ====================================================
+
+  useEffect(() => {
+    if (!token) return undefined;
+
+    let active = true;
+
+    const socket = io(API_URL, {
+      auth: { token },
+      transports: ["websocket", "polling"],
+    });
+
+    const refreshAfterSocketEvent = async () => {
+      if (!active) return;
+
+      try {
+        await refreshNotificationData(token);
+      } catch (err) {
+        if (active) {
+          console.error(
+            "Unable to synchronize notifications:",
+            err.message
+          );
+        }
+      }
+    };
+
+    const handleNewNotification = (notification) => {
+      if (!active || !notification) return;
+
+      // Add the notification immediately, without duplicates.
+      setNotifications((current) => {
+        const incomingId = getNotificationId(notification);
+
+        if (
+          incomingId &&
+          current.some(
+            (item) => getNotificationId(item) === incomingId
+          )
+        ) {
+          return current;
+        }
+
+        return [notification, ...current];
+      });
+
+      // Get the authoritative unread count from the backend.
+      refreshUnreadCount(token).catch((err) => {
+        if (active) {
+          console.error("Unable to refresh unread count:", err.message);
+        }
+      });
+    };
+
+    const handleNotificationUpdated = (event) => {
+      if (!active) return;
+
+      // Apply the read state immediately, then reconcile with the API.
+      if (event?.notificationId) {
+        setNotifications((current) =>
+          current.map((notification) =>
+            getNotificationId(notification) ===
+            String(event.notificationId)
+              ? { ...notification, isRead: event.isRead ?? true }
+              : notification
+          )
         );
       }
 
-      setNotifications((current) =>
-        current.filter(
-          (notification) => notification._id !== id
-        )
-      );
+      refreshAfterSocketEvent();
+    };
 
-      // Recalculate after deletion.
-      await refreshUnreadCount(token);
-    } catch (err) {
-      console.error("Delete notification error:", err);
-      setError(err.message || "Unable to delete notification.");
-    } finally {
-      setActionInProgress((current) => {
-        const updated = { ...current };
-        delete updated[id];
-        return updated;
-      });
-    }
-  }
+    const handleNotificationDeleted = (event) => {
+      if (!active) return;
 
-  // Login screen.
+      // Remove the notification immediately from this tab.
+      if (event?.notificationId) {
+        setNotifications((current) =>
+          current.filter(
+            (notification) =>
+              getNotificationId(notification) !==
+              String(event.notificationId)
+          )
+        );
+      }
+
+      refreshAfterSocketEvent();
+    };
+
+    const handleConnect = () => {
+      console.log("✅ Socket connected:", socket.id);
+      refreshAfterSocketEvent();
+    };
+
+    const handleConnectError = (err) => {
+      console.error("❌ Socket connection failed:", err.message);
+    };
+
+    const handleDisconnect = (reason) => {
+      console.log("Socket disconnected:", reason);
+    };
+
+    socket.on("connect", handleConnect);
+    socket.on("connect_error", handleConnectError);
+    socket.on("disconnect", handleDisconnect);
+
+    socket.on("newNotification", handleNewNotification);
+    socket.on("notificationUpdated", handleNotificationUpdated);
+    socket.on("notificationDeleted", handleNotificationDeleted);
+
+    // Load existing notifications after login.
+    refreshAfterSocketEvent();
+
+    return () => {
+      active = false;
+
+      socket.off("connect", handleConnect);
+      socket.off("connect_error", handleConnectError);
+      socket.off("disconnect", handleDisconnect);
+
+      socket.off("newNotification", handleNewNotification);
+      socket.off("notificationUpdated", handleNotificationUpdated);
+      socket.off("notificationDeleted", handleNotificationDeleted);
+
+      socket.disconnect();
+    };
+  }, [token, refreshNotificationData, refreshUnreadCount]);
+
+  // ====================================================
+  // LOGIN SCREEN
+  // ====================================================
+
   if (!token) {
     return (
-      <main className="app">
-        <section className="login-container">
+      <main className="app-container">
+        <section className="auth-card">
           <h1>NotifyHub</h1>
-          <p>Log in to view your notifications.</p>
+          <p>Sign in to manage your notifications.</p>
+
+          {error && <p className="error-message">{error}</p>}
+          {success && <p className="success-message">{success}</p>}
 
           <form onSubmit={handleLogin}>
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="Enter your email"
-              autoComplete="email"
-              required
-            />
+            <div className="form-group">
+              <label htmlFor="email">Email</label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="Enter your email"
+                autoComplete="email"
+                required
+              />
+            </div>
 
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="Enter your password"
-              autoComplete="current-password"
-              required
-            />
+            <div className="form-group">
+              <label htmlFor="password">Password</label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="Enter your password"
+                autoComplete="current-password"
+                required
+              />
+            </div>
 
-            <button type="submit">Login</button>
+            <button type="submit" disabled={loading}>
+              {loading ? "Signing in..." : "Login"}
+            </button>
           </form>
-
-          {error && <p className="error">{error}</p>}
         </section>
       </main>
     );
   }
 
-  // Notification dashboard.
+  // ====================================================
+  // NOTIFICATION DASHBOARD
+  // ====================================================
+
   return (
-    <main className="app">
-      <header className="app-header">
+    <main className="app-container">
+      <header className="dashboard-header">
         <div>
           <h1>NotifyHub</h1>
-          <p>Your notification dashboard</p>
+          <p>Real-time notification dashboard</p>
         </div>
 
         <button type="button" onClick={handleLogout}>
@@ -455,82 +517,161 @@ function App() {
         </button>
       </header>
 
-      <section className="notifications-section">
-        <h2>
-          Notifications ({notifications.length})
+      <section className="dashboard-summary">
+        <h2>My Notifications</h2>
+
+        <div className="notification-stats">
+          <span>
+            Total: {notifications.length}
+          </span>
+
           <span className="unread-badge">
             {unreadCount} unread
           </span>
-        </h2>
+        </div>
 
-        {loading && <p>Loading notifications...</p>}
-        {error && <p className="error">{error}</p>}
+        <button
+          type="button"
+          onClick={() =>
+            refreshNotificationData(token).catch((err) =>
+              setError(err.message || "Unable to refresh notifications.")
+            )
+          }
+        >
+          Refresh
+        </button>
+      </section>
 
-        {!loading && !error && notifications.length === 0 && (
-          <p>No notifications found.</p>
-        )}
+      {error && <p className="error-message">{error}</p>}
+      {success && <p className="success-message">{success}</p>}
 
-        <div className="notification-list">
-          {notifications.map((notification) => {
-            const busy = Boolean(
-              actionInProgress[notification._id]
-            );
+      <section className="create-notification-section">
+        <h2>Create Notification</h2>
 
-            return (
-              <article
-                className="notification-card"
-                key={notification._id}
-              >
-                <h3>{notification.title}</h3>
-                <p>{notification.message}</p>
+        <form onSubmit={handleCreateNotification}>
+          <div className="form-group">
+            <label htmlFor="notification-title">Title</label>
+            <input
+              id="notification-title"
+              type="text"
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              placeholder="Enter notification title"
+              required
+            />
+          </div>
 
-                <div className="notification-meta">
-                  <span>
-                    Type: {notification.type || "general"}
-                  </span>
+          <div className="form-group">
+            <label htmlFor="notification-message">Message</label>
+            <textarea
+              id="notification-message"
+              value={message}
+              onChange={(event) => setMessage(event.target.value)}
+              placeholder="Enter notification message"
+              rows={3}
+              required
+            />
+          </div>
 
-                  <span>
-                    Status: {notification.isRead ? "Read" : "Unread"}
-                  </span>
-                </div>
+          <div className="form-group">
+            <label htmlFor="notification-type">Type</label>
+            <select
+              id="notification-type"
+              value={type}
+              onChange={(event) => setType(event.target.value)}
+            >
+              <option value="general">General</option>
+              <option value="system">System</option>
+              <option value="info">Info</option>
+              <option value="success">Success</option>
+              <option value="warning">Warning</option>
+              <option value="error">Error</option>
+            </select>
+          </div>
 
-                {notification.createdAt && (
-                  <small>
-                    {new Date(
-                      notification.createdAt
-                    ).toLocaleString()}
-                  </small>
-                )}
+          <button
+            type="submit"
+            disabled={actionInProgress === "create"}
+          >
+            {actionInProgress === "create"
+              ? "Creating..."
+              : "Create Notification"}
+          </button>
+        </form>
+      </section>
 
-                <small className="notification-id">
-                  ID: {notification._id}
-                </small>
+      <section className="notifications-section">
+        <h2>Notification List</h2>
 
-                <div className="notification-actions">
-                  {!notification.isRead && (
+        {notifications.length === 0 ? (
+          <p>No notifications yet.</p>
+        ) : (
+          <div className="notification-list">
+            {notifications.map((notification) => {
+              const id = getNotificationId(notification);
+              const isRead = Boolean(notification.isRead);
+
+              return (
+                <article
+                  key={id || `${notification.title}-${notification.createdAt}`}
+                  className={`notification-card ${isRead ? "read" : "unread"}`}
+                >
+                  <div className="notification-content">
+                    <div className="notification-title-row">
+                      <h3>{notification.title}</h3>
+
+                      <span className="notification-status">
+                        {isRead ? "Read" : "Unread"}
+                      </span>
+                    </div>
+
+                    <p>{notification.message}</p>
+
+                    <p className="notification-meta">
+                      Type: {notification.type || "general"}
+                    </p>
+
+                    {notification.createdAt && (
+                      <p className="notification-meta">
+                        {new Date(notification.createdAt).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="notification-actions">
+                    {!isRead && (
+                      <button
+                        type="button"
+                        onClick={() => handleMarkAsRead(id)}
+                        disabled={
+                          actionInProgress === `read-${id}` ||
+                          !id
+                        }
+                      >
+                        {actionInProgress === `read-${id}`
+                          ? "Updating..."
+                          : "Mark as Read"}
+                      </button>
+                    )}
+
                     <button
                       type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        handleMarkAsRead(notification._id)
+                      onClick={() => handleDelete(id)}
+                      disabled={
+                        actionInProgress === `delete-${id}` ||
+                        !id
                       }
                     >
-                      {busy ? "Please wait..." : "Mark as Read"}
+                      {actionInProgress === `delete-${id}`
+                        ? "Deleting..."
+                        : "Delete"}
                     </button>
-                  )}
-
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => handleDelete(notification._id)}
-                  >
-                    {busy ? "Please wait..." : "Delete"}
-                  </button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
     </main>
   );
